@@ -6,23 +6,44 @@ import { RouteMap } from "@/components/route-map"
 import { Button } from "@/components/ui/button"
 import { X, Volume2, VolumeX } from "lucide-react"
 
+// Type definitions for navigation directions
 type Direction = "straight" | "left" | "right" | "arrived"
 
+// Step interface for navigation instructions
 interface Step {
   direction: Direction
   instruction: string
   distance: string
 }
 
+// Props interface for NavigationDisplay component
 interface NavigationDisplayProps {
   destination: string
   onStop: () => void
+}
+
+// Interface for OneMap route data structure
+interface RouteData {
+  legs: Array<{
+    mode: string
+    duration: number
+    distance: number
+    legGeometry: {
+      points: string  // Encoded polyline string
+    }
+    from: { lat: number; lon: number }
+    to: { lat: number; lon: number }
+  }>
 }
 
 export function NavigationDisplay({ destination, onStop }: NavigationDisplayProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [isSpeaking, setIsSpeaking] = useState(true)
   const [speechSupported, setSpeechSupported] = useState(false)
+  
+  // State to store the route data from OneMap API
+  // This will be passed to RouteMap for rendering the route on the map
+  const [routeData, setRouteData] = useState<RouteData | null>(null)
 
   // Demo navigation steps - in a real app, this would come from a navigation API
   const steps: Step[] = [
@@ -33,6 +54,40 @@ export function NavigationDisplay({ destination, onStop }: NavigationDisplayProp
     { direction: "straight", instruction: "Walk straight to your destination", distance: "80 meters" },
     { direction: "arrived", instruction: "You have arrived at your destination", distance: "0 meters" },
   ]
+
+  /**
+   * Fetch route data from OneMap API on component mount
+   * The API returns itineraries with legs, each containing:
+   * - legGeometry.points: encoded polyline string for the route segment
+   * - mode: transport mode (WALK, BUS, etc.)
+   * - duration/distance: trip metrics
+   * - from/to: start and end coordinates
+   */
+  useEffect(() => {
+    fetch("/api/onemap/")
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`API responded with status: ${res.status}`)
+        }
+        return res.json()
+      })
+      .then((data) => {
+        // Check if the response has the expected structure
+        if (!data?.plan?.itineraries?.[0]) {
+          console.error("Invalid API response structure:", data)
+          return
+        }
+        
+        // Extract the first itinerary and set it as route data
+        // This will be passed to RouteMap to draw the route
+        const itinerary = data.plan.itineraries[0]
+        setRouteData(itinerary)
+      })
+      .catch((error) => {
+        console.error("Error fetching OneMap data:", error)
+      })
+  }, [])
+
 
   const currentStep = steps[currentStepIndex]
 
@@ -125,7 +180,12 @@ export function NavigationDisplay({ destination, onStop }: NavigationDisplayProp
       <div className="flex-1 flex flex-col lg:flex-row gap-8 p-8 max-w-[1800px] mx-auto w-full">
         {/* Map Section - Left Side */}
         <div className="flex-1 min-h-[400px] lg:min-h-0">
-          <RouteMap currentStepIndex={currentStepIndex} totalSteps={steps.length} />
+          {/* 
+            RouteMap receives the full route data from OneMap API
+            It will decode the legGeometry points and draw the route on the map
+            The map will automatically zoom to fit the entire route
+          */}
+          <RouteMap routeData={routeData} />
         </div>
 
         {/* Direction Display - Right Side */}
