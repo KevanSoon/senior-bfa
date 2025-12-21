@@ -19,6 +19,7 @@ interface Step {
 // Props interface for NavigationDisplay component
 interface NavigationDisplayProps {
   destination: string
+  destinationCoords: { lat: number; lng: number } | null
   onStop: () => void
 }
 
@@ -36,10 +37,11 @@ interface RouteData {
   }>
 }
 
-export function NavigationDisplay({ destination, onStop }: NavigationDisplayProps) {
+export function NavigationDisplay({ destination, destinationCoords, onStop }: NavigationDisplayProps) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [isSpeaking, setIsSpeaking] = useState(true)
   const [speechSupported, setSpeechSupported] = useState(false)
+  const [startCoords, setStartCoords] = useState<{ lat: number; lng: number } | null>(null)
   
   // State to store the route data from OneMap API
   // This will be passed to RouteMap for rendering the route on the map
@@ -55,8 +57,30 @@ export function NavigationDisplay({ destination, onStop }: NavigationDisplayProp
     { direction: "arrived", instruction: "You have arrived at your destination", distance: "0 meters" },
   ]
 
+  // Get user's current location
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setStartCoords({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          })
+        },
+        (error) => {
+          console.error("Error getting location:", error)
+          // Fallback to default location (Singapore)
+          setStartCoords({ lat: 1.3580523, lng: 103.7370989 })
+        }
+      )
+    } else {
+      // Fallback to default location
+      setStartCoords({ lat: 1.3580523, lng: 103.7370989 })
+    }
+  }, [])
+
   /**
-   * Fetch route data from OneMap API on component mount
+   * Fetch route data from OneMap API when we have both start and destination coordinates
    * The API returns itineraries with legs, each containing:
    * - legGeometry.points: encoded polyline string for the route segment
    * - mode: transport mode (WALK, BUS, etc.)
@@ -64,7 +88,16 @@ export function NavigationDisplay({ destination, onStop }: NavigationDisplayProp
    * - from/to: start and end coordinates
    */
   useEffect(() => {
-    fetch("/api/onemap/")
+    if (!startCoords || !destinationCoords) return
+
+    const params = new URLSearchParams({
+      startLat: startCoords.lat.toString(),
+      startLng: startCoords.lng.toString(),
+      endLat: destinationCoords.lat.toString(),
+      endLng: destinationCoords.lng.toString(),
+    })
+
+    fetch(`/api/onemap?${params}`)
       .then((res) => {
         if (!res.ok) {
           throw new Error(`API responded with status: ${res.status}`)
@@ -86,7 +119,7 @@ export function NavigationDisplay({ destination, onStop }: NavigationDisplayProp
       .catch((error) => {
         console.error("Error fetching OneMap data:", error)
       })
-  }, [])
+  }, [startCoords, destinationCoords])
 
 
   const currentStep = steps[currentStepIndex]

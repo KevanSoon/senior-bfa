@@ -11,6 +11,8 @@ from pydantic import BaseModel
 import io
 import soundfile as sf
 from contextlib import asynccontextmanager
+import tempfile
+import os
 
 # Global variables for model and processor
 processor = None
@@ -149,17 +151,61 @@ async def transcribe_voice(audio_file: UploadFile = File(...)):
         raise HTTPException(status_code=503, detail="Model not loaded yet")
     
     try:
+        from pydub import AudioSegment
+        import librosa
+        
         # Read the uploaded file
         contents = await audio_file.read()
+        filename = audio_file.filename or "audio.webm"
         
-        # Load audio using soundfile
-        audio_data, sample_rate = sf.read(io.BytesIO(contents))
+        # Get file extension
+        ext = os.path.splitext(filename)[1].lower() or ".webm"
         
-        # Convert to float32 numpy array
-        audio_array = audio_data.astype(np.float32)
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(contents)
+            tmp_path = tmp.name
+        
+        try:
+            # Load with pydub (uses ffmpeg)
+            audio_segment = AudioSegment.from_file(tmp_path)
+            
+            # Convert to mono first
+            audio_segment = audio_segment.set_channels(1)
+            
+            # Convert to 16-bit sample width for consistent normalization
+            audio_segment = audio_segment.set_sample_width(2)  # 2 bytes = 16-bit
+            
+            # Get the original sample rate
+            original_sample_rate = audio_segment.frame_rate
+            
+            # Get raw samples as numpy array
+            samples = np.array(audio_segment.get_array_of_samples())
+            
+            # Normalize to float32 [-1, 1] (16-bit range is -32768 to 32767)
+            audio_array = samples.astype(np.float32) / 32768.0
+            
+            # Use librosa for high-quality resampling to 16kHz (same as voice_recorder.py)
+            if original_sample_rate != 16000:
+                audio_array = librosa.resample(
+                    audio_array, 
+                    orig_sr=original_sample_rate, 
+                    target_sr=16000,
+                    res_type='kaiser_best'  # High quality resampling
+                )
+            
+            sample_rate = 16000
+            
+            print(f"Audio duration: {len(audio_array) / sample_rate:.2f}s, max amplitude: {np.abs(audio_array).max():.4f}")
+            
+        finally:
+            # Clean up temp file
+            os.unlink(tmp_path)
         
         # Transcribe
         text = transcribe_audio(audio_array, sample_rate)
+        
+        print(f"\n📝 Transcribed: {text.strip()}\n")
         
         return TranscriptionResponse(
             text=text.strip(),
@@ -167,6 +213,8 @@ async def transcribe_voice(audio_file: UploadFile = File(...)):
         )
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 

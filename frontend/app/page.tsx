@@ -1,22 +1,29 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { NavigationDisplay } from "@/components/navigation-display"
 import { DestinationInput } from "@/components/destination-input"
 
+interface Coordinates {
+  lat: number
+  lng: number
+}
 
 export default function Home() {
   const [destination, setDestination] = useState("")
+  const [destinationCoords, setDestinationCoords] = useState<Coordinates | null>(null)
   const [isNavigating, setIsNavigating] = useState(false)
 
-  const handleStartNavigation = (dest: string) => {
+  const handleStartNavigation = (dest: string, coordinates: Coordinates) => {
     setDestination(dest)
+    setDestinationCoords(coordinates)
     setIsNavigating(true)
   }
 
   const handleStopNavigation = () => {
     setIsNavigating(false)
     setDestination("")
+    setDestinationCoords(null)
   }
 
   return (
@@ -24,7 +31,11 @@ export default function Home() {
       {!isNavigating ? (
         <DestinationInput onStart={handleStartNavigation} />
       ) : (
-        <NavigationDisplay destination={destination} onStop={handleStopNavigation} />
+        <NavigationDisplay 
+          destination={destination} 
+          destinationCoords={destinationCoords}
+          onStop={handleStopNavigation} 
+        />
       )}
     </main>
   )
